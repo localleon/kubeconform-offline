@@ -177,6 +177,8 @@ jobs:
         \`\`\`
         EOF
 
+        gh release delete "${TAG}" --yes --repo "${{ github.repository }}" 2>/dev/null || true
+
         gh release create "${TAG}" \
           --repo "${{ github.repository }}" \
           --title "kubeconform ${TAG}" \
