@@ -31,7 +31,7 @@ LABEL org.opencontainers.image.title="kubeconform-offline" \
 # Upgrade base packages and install the two tools in a single layer,
 # then remove curl so it does not remain in the final image.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache curl \
+    && apk add --no-cache curl make \
     \
     # ── kubeconform ──────────────────────────────────────────────────────────
     && curl -fsSL \
