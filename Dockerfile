@@ -56,12 +56,13 @@ COPY --from=schema-downloader /schemas /schemas
 RUN addgroup -g 1000 kubeconform \
     && adduser -u 1000 -G kubeconform -s /bin/sh -D kubeconform
 
+# Pre-configure the schema-location template so callers only need -schema-location "$SCHEMA_LOCATION"
+ENV SCHEMA_LOCATION=/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+ENV DEFAULT_SCHEMA_LOCATION=/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json
+ENV CRD_SCHEMA_LOCATION=/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+
 USER kubeconform
 WORKDIR /workspace
-
-# Convenience variable so users can pass it directly on the CLI:
-#   kubeconform -schema-location "$SCHEMA_LOCATION" manifests/
-ENV SCHEMA_LOCATION="/schemas/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json"
 
 ENTRYPOINT ["kubeconform"]
 # Default: show available schema versions then print help

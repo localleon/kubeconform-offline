@@ -48,6 +48,7 @@ for minor in $K8S_MINOR_VERSIONS; do
 done
 
 echo "==> Cloning kubernetes-json-schema with sparse checkout..."
+rm -rf "$CLONE_DIR"
 git clone \
     --filter=blob:none \
     --no-checkout \
@@ -97,4 +98,25 @@ fi
 } > "$OUTPUT_DIR/versions.txt"
 
 echo "==> Schema manifest written to ${OUTPUT_DIR}/versions.txt"
+
+# ── CRD catalog ─────────────────────────────────────────────────────────────
+CRD_CATALOG_REPO="https://github.com/datreeio/CRDs-catalog.git"
+CRD_CLONE_DIR="/tmp/crd-catalog"
+
+echo "==> Cloning CRDs-catalog (depth=1)..."
+rm -rf "$CRD_CLONE_DIR"
+git clone --depth=1 --single-branch "$CRD_CATALOG_REPO" "$CRD_CLONE_DIR"
+
+echo "==> Copying CRD schemas to ${OUTPUT_DIR}/crd-catalog/..."
+mkdir -p "$OUTPUT_DIR/crd-catalog"
+for dir in "$CRD_CLONE_DIR"/*/; do
+    name=$(basename "$dir")
+    case "$name" in
+        .* | Utilities) continue ;;
+    esac
+    cp -r "$dir" "$OUTPUT_DIR/crd-catalog/"
+done
+crd_count=$(find "$OUTPUT_DIR/crd-catalog" -name '*.json' | wc -l)
+echo "  Copied CRD catalog  (${crd_count} schemas)"
+
 echo "==> Done. Total size: $(du -sh "$OUTPUT_DIR" | cut -f1)"

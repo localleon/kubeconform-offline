@@ -9,27 +9,48 @@ Alpine-based container image bundling [kubeconform](https://github.com/yannh/kub
 | `kubeconform` | Latest release from [yannh/kubeconform](https://github.com/yannh/kubeconform)                                                                   |
 | `kustomize`   | Latest release from [kubernetes-sigs/kustomize](https://github.com/kubernetes-sigs/kustomize)                                                   |
 | JSON schemas  | v1.33 – v1.35, `standalone` + `standalone-strict` variants from [yannh/kubernetes-json-schema](https://github.com/yannh/kubernetes-json-schema) |
+| CRD schemas   | All groups from [datreeio/CRDs-catalog](https://github.com/datreeio/CRDs-catalog)                                                               |
 
-The `$SCHEMA_LOCATION` environment variable is pre-configured in the image:
-```
-/schemas/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json
-```
+The image pre-configures two environment variables:
 
-The latest major schema is always found under `/schemas/default-standalone-strict.json` or `/schemas/default-standalone.json` and should be used as a default in CI. 
+| Variable                   | Value                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------- |
+| `$SCHEMA_LOCATION`         | `/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json` |
+| `$DEFAULT_SCHEMA_LOCATION` | `/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json`                          |
+| `$CRD_SCHEMA_LOCATION`     | `/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json`                    |
+
+The latest bundled patch version is always symlinked as `/schemas/default-standalone-strict/` and `/schemas/default-standalone/`. Use `$DEFAULT_SCHEMA_LOCATION` to point kubeconform at them without specifying a concrete Kubernetes version.
 
 ## Usage
 
-### GitLab CI
+### GitLab CI withoot CRDs 
 
 ```yaml
 validate:
-  image: ghcr.io/<your-org>/kubeconform-offline:latest
+  image:
+    name: ghcr.io/<your-org>/kubeconform-offline:latest
+    entrypoint: [""]
   script:
     - kubeconform
-        -kubernetes-version 1.33.0
-        -schema-location "$SCHEMA_LOCATION"
-        -summary
-        manifests/
+        -schema-location "/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+        -schema-location "/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+        -summary manifests/
+
+```
+
+### GitLab CI with CRDs 
+
+```yaml
+validate:
+  image:
+    name: ghcr.io/<your-org>/kubeconform-offline:latest
+    entrypoint: [""]
+  script:
+    - kubeconform
+        -schema-location "/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+        -schema-location "/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+        -schema-location "/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+        -summary manifests/
 ```
 
 ### kustomize + kubeconform pipeline
@@ -39,11 +60,13 @@ validate:
   image: ghcr.io/<your-org>/kubeconform-offline:latest
   entrypoint: [""]
   script:
-    - kustomize build overlays/production |
-        kubeconform
-          -kubernetes-version 1.33.0
-          -schema-location "$SCHEMA_LOCATION"
-          -summary -
+    - kustomize build overlays/production 
+    - kubeconform
+        -schema-location "/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+        -schema-location "/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
+        -schema-location "/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+        -summary manifests/
+
 ```
 
 ### Local
@@ -54,10 +77,15 @@ docker build \
   --build-arg KUSTOMIZE_VERSION=v5.8.1 \
   -t kubeconform-offline:local .
 
+# Pinned version
 docker run --rm -v $(pwd)/:/workspace kubeconform-offline:local \
   -kubernetes-version 1.33.0 \
-  -schema-location "$SCHEMA_LOCATION" \
+  -schema-location '/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json' \
   -summary .
+
+# Latest bundled version via DEFAULT_SCHEMA_LOCATION (must expand env inside container)
+docker run --rm -v $(pwd)/:/workspace --entrypoint sh kubeconform-offline:local \
+  -c 'kubeconform -schema-location "$DEFAULT_SCHEMA_LOCATION" -summary .'
 ```
 
 ## Automation
@@ -84,8 +112,19 @@ act workflow_dispatch -W .github/workflows/build.yml
 
 ## Schema location flag
 
+Use `$SCHEMA_LOCATION` together with `-kubernetes-version` to validate against a specific Kubernetes version:
 ```
--schema-location '/schemas/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json'
+-schema-location "$SCHEMA_LOCATION" -kubernetes-version 1.33.0
 ```
 
-Omit `{{.StrictSuffix}}` (or pass `-ignore-missing-schemas`) to use the non-strict variant.
+Use `$DEFAULT_SCHEMA_LOCATION` without `-kubernetes-version` to always validate against the latest bundled patch version:
+```
+-schema-location "$DEFAULT_SCHEMA_LOCATION"
+```
+
+Add `$CRD_SCHEMA_LOCATION` as a second `-schema-location` to also validate Custom Resources against the bundled CRD catalog:
+```
+-schema-location "$DEFAULT_SCHEMA_LOCATION" -schema-location "$CRD_SCHEMA_LOCATION"
+```
+
+Replace `-strict` with nothing in either K8s schema path to use the non-strict (more permissive) variant.
