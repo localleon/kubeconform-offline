@@ -8,33 +8,32 @@
 
 set -eu
 
-K8S_MINOR_VERSIONS="${K8S_VERSIONS:-v1.31 v1.32 v1.33 v1.34 v1.35}"
+K8S_MINOR_VERSIONS="${K8S_VERSIONS:-v1.33 v1.34 v1.35}"
 OUTPUT_DIR="${OUTPUT_DIR:-/schemas}"
 
 SCHEMA_REPO="https://github.com/yannh/kubernetes-json-schema.git"
-TREE_API="https://api.github.com/repos/yannh/kubernetes-json-schema/git/trees/master"
+CONTENTS_API="https://api.github.com/repos/yannh/kubernetes-json-schema/contents/"
 CLONE_DIR="/tmp/k8s-json-schema"
 
 echo "==> Fetching Kubernetes JSON schema directory listing from GitHub..."
-tree_json=$(curl -fsSL "${TREE_API}?recursive=0")
+tree_json=$(curl -fsSL "${CONTENTS_API}")
 
 # Build the list of sparse-checkout paths and resolve latest patch per minor
 checkout_paths=""
 echo "==> Resolving latest patch versions:"
 for minor in $K8S_MINOR_VERSIONS; do
     ver="${minor#v}"  # strip leading 'v' for regex matching
-
     # Find latest vX.Y.Z-standalone-strict directory
     latest_strict=$(printf '%s\n' "$tree_json" \
-        | grep -oE "\"path\":\"v${ver}\\.[0-9]+-standalone-strict\"" \
-        | sed 's/"path":"//;s/"//' \
+        | grep -oE "\"name\": \"v${ver}\\.[0-9]+-standalone-strict\"" \
+        | sed 's/"name": "//;s/"//' \
         | sort -V | tail -1)
 
     # Find latest vX.Y.Z-standalone directory (the -standalone" quote anchor
     # ensures we do NOT match standalone-strict entries here)
     latest=$(printf '%s\n' "$tree_json" \
-        | grep -oE "\"path\":\"v${ver}\\.[0-9]+-standalone\"" \
-        | sed 's/"path":"//;s/"//' \
+        | grep -oE "\"name\": \"v${ver}\\.[0-9]+-standalone\"" \
+        | sed 's/"name": "//;s/"//' \
         | sort -V | tail -1)
 
     if [ -z "$latest_strict" ] || [ -z "$latest" ]; then
@@ -75,6 +74,15 @@ for dir in $checkout_paths; do
         echo "WARNING: Directory '${dir}' not found after checkout" >&2
     fi
 done
+
+# Create "default" symlinks pointing to the overall latest patch version
+latest_default_strict=$(printf '%s\n' $checkout_paths | grep '\-standalone-strict$' | sort -V | tail -1)
+latest_default=$(printf '%s\n' $checkout_paths | grep '\-standalone$' | sort -V | tail -1)
+if [ -n "$latest_default_strict" ] && [ -n "$latest_default" ]; then
+    ln -sfn "$latest_default_strict" "$OUTPUT_DIR/default-standalone-strict"
+    ln -sfn "$latest_default" "$OUTPUT_DIR/default-standalone"
+    echo "==> Default schemas -> ${latest_default_strict%-standalone-strict}"
+fi
 
 # Write a human-readable version manifest
 {

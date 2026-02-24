@@ -8,12 +8,14 @@ Alpine-based container image bundling [kubeconform](https://github.com/yannh/kub
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kubeconform` | Latest release from [yannh/kubeconform](https://github.com/yannh/kubeconform)                                                                   |
 | `kustomize`   | Latest release from [kubernetes-sigs/kustomize](https://github.com/kubernetes-sigs/kustomize)                                                   |
-| JSON schemas  | v1.31 – v1.35, `standalone` + `standalone-strict` variants from [yannh/kubernetes-json-schema](https://github.com/yannh/kubernetes-json-schema) |
+| JSON schemas  | v1.33 – v1.35, `standalone` + `standalone-strict` variants from [yannh/kubernetes-json-schema](https://github.com/yannh/kubernetes-json-schema) |
 
 The `$SCHEMA_LOCATION` environment variable is pre-configured in the image:
 ```
 /schemas/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json
 ```
+
+The latest major schema is always found under `/schemas/default-standalone-strict.json` or `/schemas/default-standalone.json` and should be used as a default in CI. 
 
 ## Usage
 
@@ -52,7 +54,7 @@ docker build \
   --build-arg KUSTOMIZE_VERSION=v5.8.1 \
   -t kubeconform-offline:local .
 
-docker run --rm -v $(pwd)/manifests:/workspace kubeconform-offline:local \
+docker run --rm -v $(pwd)/:/workspace kubeconform-offline:local \
   -kubernetes-version 1.33.0 \
   -schema-location "$SCHEMA_LOCATION" \
   -summary .

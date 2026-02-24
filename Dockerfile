@@ -3,9 +3,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 – Download Kubernetes JSON schemas
 # ─────────────────────────────────────────────────────────────────────────────
-FROM alpine:3.21 AS schema-downloader
+FROM alpine:latest AS schema-downloader
 
-ARG K8S_VERSIONS="v1.31 v1.32 v1.33 v1.34 v1.35"
+ARG K8S_VERSIONS="v1.33 v1.34 v1.35"
 
 RUN apk add --no-cache curl git
 
@@ -18,7 +18,8 @@ RUN chmod +x /scripts/download-schemas.sh \
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2 – Final image
 # ─────────────────────────────────────────────────────────────────────────────
-FROM alpine:3.21
+FROM alpine:latest 
+# we use the latest tag here to ensure we get the most recent security updates, but we pin the versions of kubeconform and kustomize to ensure reproducible builds.
 
 ARG KUBECONFORM_VERSION
 ARG KUSTOMIZE_VERSION

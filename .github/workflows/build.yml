@@ -10,7 +10,7 @@ on:
         description: "Force rebuild even if the kubeconform version tag already exists"
         required: false
         type: boolean
-        default: false
+        default: true # we want to update the kustomize version, image packages and schemas even if kubeconform's version hasn't changed
 
 permissions:
   contents: write # create releases
