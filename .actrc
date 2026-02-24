@@ -1,0 +1,29 @@
+# act configuration for local GitHub Actions testing
+# https://github.com/nektos/act
+#
+# Prerequisites:
+#   1. Install act: https://nektosact.com/installation/index.html
+#   2. Create a PAT with scopes: repo, write:packages, read:packages
+#   3. Copy .act.secrets.example to .act.secrets and fill in your PAT
+#
+# Run the scheduled build workflow:
+#   act schedule -W .github/workflows/build.yml
+#
+# Run with manual trigger:
+#   act workflow_dispatch -W .github/workflows/build.yml
+#
+# Force rebuild:
+#   act workflow_dispatch -W .github/workflows/build.yml \
+#       -e '{"inputs":{"force_rebuild":"true"}}'
+
+# Use the catthehacker image as a drop-in for ubuntu-latest (includes Docker)
+-P ubuntu-latest=catthehacker/ubuntu:act-22.04
+
+# Load secrets from a local file (never commit this file)
+--secret-file .act.secrets
+
+# Ensure we use linux/amd64 so the binaries we download run inside act's containers
+--container-architecture linux/amd64
+
+# Use the host Docker daemon so docker build-push-action can push images
+--use-gitignore=false

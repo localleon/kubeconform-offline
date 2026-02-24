@@ -1,0 +1,13 @@
+# act local secrets (contains real PAT – never commit)
+.act.secrets
+
+# Local test build artifacts
+*.tar.gz
+*.zip
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
