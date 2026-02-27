@@ -15,6 +15,7 @@ RUN apk upgrade --no-cache \
     && apk add --no-cache \
     curl git \
     nodejs npm \
+    openssh-client \
     \
     # ── gitleaks ─────────────────────────────────────────────────────────────
     && curl -fsSL \
