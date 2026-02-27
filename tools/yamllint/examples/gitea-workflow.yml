@@ -1,0 +1,28 @@
+# yamllint YAML linting for Gitea Actions
+# Copy this file to: <your-project>/.gitea/workflows/yamllint.yml
+#
+# Runs on every push and pull request. Uses the pre-built offline image
+# so no internet access is needed during the lint.
+#
+# To test locally with act:
+#   act push -W .gitea/workflows/yamllint.yml
+
+name: YAML Lint
+
+on:
+  push:
+  pull_request:
+
+
+jobs:
+  yamllint:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/<your-org>/ci-tooling-offline/yamllint:latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run yamllint
+      run: yamllint .
