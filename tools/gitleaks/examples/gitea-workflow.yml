@@ -1,0 +1,30 @@
+# Gitleaks secret scanning for Gitea Actions
+# Copy this file to: <your-project>/.gitea/workflows/gitleaks.yml
+#
+# Runs on every push and pull request. Uses the pre-built offline image
+# so no internet access is needed during the scan.
+#
+# To test locally with act:
+#   act push -W .gitea/workflows/gitleaks.yml
+
+name: Gitleaks Secret Scan
+
+on:
+  push:
+  pull_request:
+
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/<your-org>/ci-tooling-offline/gitleaks:latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # full history for git log scanning
+
+    - name: Run gitleaks
+      run: gitleaks detect --source . --verbose --redact

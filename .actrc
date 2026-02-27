@@ -1,4 +1,4 @@
-# act configuration for local GitHub Actions testing
+# act configuration for local GitHub Actions testing (ci-tooling-offline)
 # https://github.com/nektos/act
 #
 # Prerequisites:
@@ -6,11 +6,15 @@
 #   2. Create a PAT with scopes: repo, write:packages, read:packages
 #   3. Copy .act.secrets.example to .act.secrets and fill in your PAT
 #
-# Run the scheduled build workflow:
+# Run the scheduled build workflow (all tools):
 #   act schedule -W .github/workflows/build.yml
 #
 # Run with manual trigger:
 #   act workflow_dispatch -W .github/workflows/build.yml
+#
+# Build only a specific tool:
+#   act workflow_dispatch -W .github/workflows/build.yml \
+#       -e '{"inputs":{"tools":"gitleaks"}}'
 #
 # Force rebuild:
 #   act workflow_dispatch -W .github/workflows/build.yml \

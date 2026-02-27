@@ -1,103 +1,91 @@
-# kubeconform-offline
+# ci-tooling-offline
 
-Alpine-based container image bundling [kubeconform](https://github.com/yannh/kubeconform) and [kustomize](https://github.com/kubernetes-sigs/kustomize) with **offline** Kubernetes JSON schemas — no internet access required at runtime.
+A monorepo of **air-gapped CI tool images** for Gitea Actions and GitLab CI. Each tool lives in its own directory under `tools/` with a self-contained Dockerfile, documentation, and example workflows.
 
-## What's inside
+All images are Alpine-based, pre-bundle everything needed at runtime, and require **no internet access** during pipeline execution.
 
-| Component     | Source                                                                                                                                          |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kubeconform` | Latest release from [yannh/kubeconform](https://github.com/yannh/kubeconform)                                                                   |
-| `kustomize`   | Latest release from [kubernetes-sigs/kustomize](https://github.com/kubernetes-sigs/kustomize)                                                   |
-| JSON schemas  | v1.33 – v1.35, `standalone` + `standalone-strict` variants from [yannh/kubernetes-json-schema](https://github.com/yannh/kubernetes-json-schema) |
-| CRD schemas   | All groups from [datreeio/CRDs-catalog](https://github.com/datreeio/CRDs-catalog)                                                               |
+## Available tools
 
-The image pre-configures two environment variables:
+| Tool            | Image                                            | Description                                                          |
+| --------------- | ------------------------------------------------ | -------------------------------------------------------------------- |
+| **kubeconform** | `ghcr.io/<owner>/ci-tooling-offline/kubeconform` | Kubernetes manifest validation with offline JSON schemas + kustomize |
+| **gitleaks**    | `ghcr.io/<owner>/ci-tooling-offline/gitleaks`    | Secret scanning with Node.js for Gitea runner compatibility          |
 
-| Variable                   | Value                                                                                               |
-| -------------------------- | --------------------------------------------------------------------------------------------------- |
-| `$SCHEMA_LOCATION`         | `/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json` |
-| `$DEFAULT_SCHEMA_LOCATION` | `/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json`                          |
-| `$CRD_SCHEMA_LOCATION`     | `/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json`                    |
-
-The latest bundled patch version is always symlinked as `/schemas/default-standalone-strict/` and `/schemas/default-standalone/`. Use `$DEFAULT_SCHEMA_LOCATION` to point kubeconform at them without specifying a concrete Kubernetes version.
-
-## Usage
-
-### GitLab CI withoot CRDs 
-
-```yaml
-validate:
-  image:
-    name: ghcr.io/<your-org>/kubeconform-offline:latest
-    entrypoint: [""]
-  script:
-    - kubeconform
-        -schema-location "/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
-        -schema-location "/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
-        -summary manifests/
+## Repository structure
 
 ```
-
-### GitLab CI with CRDs 
-
-```yaml
-validate:
-  image:
-    name: ghcr.io/<your-org>/kubeconform-offline:latest
-    entrypoint: [""]
-  script:
-    - kubeconform
-        -schema-location "/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
-        -schema-location "/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
-        -schema-location "/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
-        -summary manifests/
+ci-tooling-offline/
+├── .github/workflows/build.yml   ← matrix CI: builds all tool images
+├── tools/
+│   ├── kubeconform/
+│   │   ├── Dockerfile
+│   │   ├── README.md              ← detailed kubeconform docs
+│   │   ├── scripts/
+│   │   │   └── download-schemas.sh
+│   │   └── examples/
+│   │       └── gitea-workflow.yml ← copy into your project
+│   └── gitleaks/
+│       ├── Dockerfile
+│       ├── README.md              ← detailed gitleaks docs
+│       └── examples/
+│           └── gitea-workflow.yml ← copy into your project
+└── manifests/                     ← test fixtures
 ```
 
-### kustomize + kubeconform pipeline
+Each tool directory is a **self-contained Docker build context**. The CI workflow uses a matrix strategy to build and push all tools in parallel.
 
-```yaml
-validate:
-  image: ghcr.io/<your-org>/kubeconform-offline:latest
-  entrypoint: [""]
-  script:
-    - kustomize build overlays/production 
-    - kubeconform
-        -schema-location "/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
-        -schema-location "/schemas/default-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json"
-        -schema-location "/schemas/crd-catalog/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
-        -summary manifests/
+## Quick start
 
-```
+### Use in Gitea Actions
 
-### Local
+Copy the example workflow from any tool into your project:
 
 ```sh
-docker build \
-  --build-arg KUBECONFORM_VERSION=v0.7.0 \
-  --build-arg KUSTOMIZE_VERSION=v5.8.1 \
-  -t kubeconform-offline:local .
+# For kubeconform
+mkdir -p .gitea/workflows
+cp tools/kubeconform/examples/gitea-workflow.yml .gitea/workflows/kubeconform.yml
 
-# Pinned version
-docker run --rm -v $(pwd)/:/workspace kubeconform-offline:local \
-  -kubernetes-version 1.33.0 \
-  -schema-location '/schemas/{{.NormalizedKubernetesVersion}}-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json' \
-  -summary .
-
-# Latest bundled version via DEFAULT_SCHEMA_LOCATION (must expand env inside container)
-docker run --rm -v $(pwd)/:/workspace --entrypoint sh kubeconform-offline:local \
-  -c 'kubeconform -schema-location "$DEFAULT_SCHEMA_LOCATION" -summary .'
+# For gitleaks
+cp tools/gitleaks/examples/gitea-workflow.yml .gitea/workflows/gitleaks.yml
 ```
+
+Then adjust the image reference (`ghcr.io/<owner>/ci-tooling-offline/<tool>:latest`) to match your registry.
+
+### Use in GitLab CI
+
+See each tool's README for GitLab CI examples:
+- [tools/kubeconform/README.md](tools/kubeconform/README.md)
+- [tools/gitleaks/README.md](tools/gitleaks/README.md)
 
 ## Automation
 
-A GitHub Actions workflow ([`.github/workflows/build.yml`](.github/workflows/build.yml)) runs on the **1st and 15th of each month**. It:
+The GitHub Actions workflow ([`.github/workflows/build.yml`](.github/workflows/build.yml)) runs on the **1st and 15th of each month**. For each tool it:
 
-1. Resolves the latest `kubeconform` and `kustomize` releases.
-2. Skips the build if the current `kubeconform` tag has already been released.
-3. Builds and pushes the image to `ghcr.io/<repo>:latest` and `ghcr.io/<repo>:<kubeconform-version>`.
+1. Resolves the latest upstream release version.
+2. Skips the build if a release tag for that version already exists.
+3. Builds and pushes the image to GHCR (`ghcr.io/<owner>/ci-tooling-offline/<tool>`).
 4. Creates a GitHub Release with tool versions and usage examples.
 
-Trigger a manual rebuild via **Actions → Build and Publish → Run workflow** (with optional *force rebuild* toggle).
+Release tags are prefixed per tool (`kubeconform-v*`, `gitleaks-v*`) to avoid collisions.
+
+Trigger a manual rebuild via **Actions → Build and Publish → Run workflow** with:
+- **force_rebuild**: override the skip guard
+- **tools**: comma-separated list to build only specific tools (empty = all)
+
+## Local builds
+
+```sh
+# Build kubeconform image
+docker build \
+  --build-arg KUBECONFORM_VERSION=v0.7.0 \
+  --build-arg KUSTOMIZE_VERSION=v5.8.1 \
+  -t ci-tooling-offline/kubeconform:local tools/kubeconform/
+
+# Build gitleaks image
+docker build \
+  --build-arg GITLEAKS_VERSION=8.24.0 \
+  -t ci-tooling-offline/gitleaks:local tools/gitleaks/
+```
 
 ## Local testing with act
 
@@ -105,26 +93,36 @@ Trigger a manual rebuild via **Actions → Build and Publish → Run workflow** 
 cp .act.secrets.example .act.secrets
 # fill in a PAT with repo + write:packages scopes
 
+# Run all tools
 act schedule -W .github/workflows/build.yml
-# or
+
+# Run with manual trigger
 act workflow_dispatch -W .github/workflows/build.yml
+
+# Build only one tool
+act workflow_dispatch -W .github/workflows/build.yml \
+    -e '{"inputs":{"tools":"gitleaks"}}'
 ```
 
-## Schema location flag
+### Testing Gitea workflows per project
 
-Use `$SCHEMA_LOCATION` together with `-kubernetes-version` to validate against a specific Kubernetes version:
-```
--schema-location "$SCHEMA_LOCATION" -kubernetes-version 1.33.0
-```
+Copy a tool's example workflow into your project and run it locally with act:
 
-Use `$DEFAULT_SCHEMA_LOCATION` without `-kubernetes-version` to always validate against the latest bundled patch version:
-```
--schema-location "$DEFAULT_SCHEMA_LOCATION"
-```
+```sh
+cd your-project/
 
-Add `$CRD_SCHEMA_LOCATION` as a second `-schema-location` to also validate Custom Resources against the bundled CRD catalog:
-```
--schema-location "$DEFAULT_SCHEMA_LOCATION" -schema-location "$CRD_SCHEMA_LOCATION"
+# Test gitleaks workflow
+act push -W .gitea/workflows/gitleaks.yml
+
+# Test kubeconform workflow
+act push -W .gitea/workflows/kubeconform.yml
 ```
 
-Replace `-strict` with nothing in either K8s schema path to use the non-strict (more permissive) variant.
+## Adding a new tool
+
+1. Create `tools/<tool-name>/` with a `Dockerfile`, `README.md`, and `examples/gitea-workflow.yml`.
+2. Add the tool to the matrix in `.github/workflows/build.yml`:
+   - Add to the default tools JSON array in the `matrix` job.
+   - Add version-resolution steps gated with `if: matrix.tool == '<tool-name>'`.
+   - Add a release-notes step gated the same way.
+3. Update this README's "Available tools" table.

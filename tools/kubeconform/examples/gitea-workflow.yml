@@ -1,0 +1,57 @@
+# Kubeconform manifest validation for Gitea Actions
+# Copy this file to: <your-project>/.gitea/workflows/kubeconform.yml
+#
+# Runs on every push that touches Kubernetes manifests. Uses the pre-built
+# offline image so no internet access is needed during validation.
+#
+# To test locally with act:
+#   act push -W .gitea/workflows/kubeconform.yml
+
+name: Kubeconform Validate
+
+on:
+  push:
+    paths:
+    - "manifests/**"
+    - "k8s/**"
+    - "deploy/**"
+    - "**/*.yaml"
+    - "**/*.yml"
+  pull_request:
+    paths:
+    - "manifests/**"
+    - "k8s/**"
+    - "deploy/**"
+    - "**/*.yaml"
+    - "**/*.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/<your-org>/ci-tooling-offline/kubeconform:latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Validate against a specific Kubernetes version (without CRDs)
+    - name: Validate manifests
+      run: |
+        kubeconform \
+          -kubernetes-version 1.33.0 \
+          -schema-location "$SCHEMA_LOCATION" \
+          -schema-location "$DEFAULT_SCHEMA_LOCATION" \
+          -summary \
+          manifests/
+    # Optional: Validate with CRD support
+    # Uncomment and adjust the path as needed
+    # - name: Validate manifests (with CRDs)
+    #   run: |
+    #     kubeconform \
+    #       -kubernetes-version 1.33.0 \
+    #       -schema-location "$SCHEMA_LOCATION" \
+    #       -schema-location "$DEFAULT_SCHEMA_LOCATION" \
+    #       -schema-location "$CRD_SCHEMA_LOCATION" \
+    #       -summary \
+    #       manifests/

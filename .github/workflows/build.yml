@@ -7,26 +7,56 @@ on:
   workflow_dispatch:
     inputs:
       force_rebuild:
-        description: "Force rebuild even if the kubeconform version tag already exists"
+        description: "Force rebuild even if the version tag already exists"
         required: false
         type: boolean
-        default: true # we want to update the kustomize version, image packages and schemas even if kubeconform's version hasn't changed
+        default: true
+      tools:
+        description: "Comma-separated list of tools to build (leave empty for all)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write # create releases
   packages: write # push to ghcr.io
 
 jobs:
-  build:
+  # ── Matrix setup ───────────────────────────────────────────────────────────
+  matrix:
     runs-on: ubuntu-latest
+    outputs:
+      tools: ${{ steps.set-matrix.outputs.tools }}
+    steps:
+    - name: Determine tool matrix
+      id: set-matrix
+      run: |
+        if [ -n "${{ inputs.tools }}" ]; then
+          # Convert comma-separated input to JSON array
+          TOOLS=$(echo '${{ inputs.tools }}' | tr ',' '\n' | sed 's/^ *//;s/ *$//' | jq -R . | jq -sc .)
+        else
+          TOOLS='["kubeconform","gitleaks"]'
+        fi
+        echo "tools=${TOOLS}" >> "$GITHUB_OUTPUT"
+        echo "Building tools: ${TOOLS}"
+
+  # ── Build each tool ────────────────────────────────────────────────────────
+  build:
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.matrix.outputs.tools) }}
 
     steps:
-    # ── Checkout ────────────────────────────────────────────────────────────
+    # ── Checkout ──────────────────────────────────────────────────────────
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ── Resolve tool versions ────────────────────────────────────────────────
+    # ── Resolve versions (kubeconform) ─────────────────────────────────────
     - name: Get latest kubeconform version
+      if: matrix.tool == 'kubeconform'
       id: kubeconform
       env:
         GH_TOKEN: ${{ github.token }}
@@ -36,6 +66,7 @@ jobs:
         echo "kubeconform: ${VERSION}"
 
     - name: Get latest kustomize version
+      if: matrix.tool == 'kubeconform'
       id: kustomize
       env:
         GH_TOKEN: ${{ github.token }}
@@ -45,23 +76,46 @@ jobs:
         echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
         echo "kustomize: ${VERSION}"
 
-    # ── Skip guard ───────────────────────────────────────────────────────────
+    # ── Resolve versions (gitleaks) ────────────────────────────────────────
+    - name: Get latest gitleaks version
+      if: matrix.tool == 'gitleaks'
+      id: gitleaks
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION=$(gh release view --repo gitleaks/gitleaks --json tagName -q '.tagName | ltrimstr("v")')
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "gitleaks: ${VERSION}"
+
+    # ── Compute unified version tag ────────────────────────────────────────
+    - name: Set version tag
+      id: version
+      run: |
+        if [ "${{ matrix.tool }}" = "kubeconform" ]; then
+          TAG="${{ steps.kubeconform.outputs.version }}"
+        elif [ "${{ matrix.tool }}" = "gitleaks" ]; then
+          TAG="v${{ steps.gitleaks.outputs.version }}"
+        fi
+        RELEASE_TAG="${{ matrix.tool }}-${TAG}"
+        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+        echo "Version tag: ${TAG}, Release tag: ${RELEASE_TAG}"
+
+    # ── Skip guard ─────────────────────────────────────────────────────────
     - name: Check whether this release tag already exists
       id: check
       env:
         GH_TOKEN: ${{ github.token }}
-        TAG: ${{ steps.kubeconform.outputs.version }}
+        RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
       run: |
-        if gh release view "${TAG}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+        if gh release view "${RELEASE_TAG}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
           echo "exists=true" >> "$GITHUB_OUTPUT"
-          echo "Release ${TAG} already exists – skipping (use force_rebuild to override)"
+          echo "Release ${RELEASE_TAG} already exists – skipping (use force_rebuild to override)"
         else
           echo "exists=false" >> "$GITHUB_OUTPUT"
-          echo "Release ${TAG} not found – proceeding with build"
+          echo "Release ${RELEASE_TAG} not found – proceeding with build"
         fi
 
-    # All subsequent steps are skipped when the tag exists unless force_rebuild=true.
-    # The condition is evaluated once and reused via a job-level env.
     - name: Determine whether to proceed
       id: gate
       run: |
@@ -71,7 +125,7 @@ jobs:
           echo "proceed=false" >> "$GITHUB_OUTPUT"
         fi
 
-    # ── Docker build & push ──────────────────────────────────────────────────
+    # ── Docker build & push ────────────────────────────────────────────────
     - name: Set up Docker Buildx
       if: steps.gate.outputs.proceed == 'true'
       uses: docker/setup-buildx-action@v3
@@ -89,36 +143,52 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository }}
+        images: ghcr.io/${{ github.repository_owner }}/ci-tooling-offline/${{ matrix.tool }}
         tags: |
-          type=raw,value=${{ steps.kubeconform.outputs.version }}
+          type=raw,value=${{ steps.version.outputs.tag }}
           type=raw,value=latest
-        labels: |
-          org.opencontainers.image.version=${{ steps.kubeconform.outputs.version }}
-          dev.kubeconform-offline.kustomize-version=${{ steps.kustomize.outputs.version }}
+
+    # Build args differ per tool
+    - name: Compute build args
+      if: steps.gate.outputs.proceed == 'true'
+      id: buildargs
+      run: |
+        if [ "${{ matrix.tool }}" = "kubeconform" ]; then
+          cat >> "$GITHUB_OUTPUT" <<EOF
+        args<<ENDARGS
+        KUBECONFORM_VERSION=${{ steps.kubeconform.outputs.version }}
+        KUSTOMIZE_VERSION=${{ steps.kustomize.outputs.version }}
+        ENDARGS
+        EOF
+        elif [ "${{ matrix.tool }}" = "gitleaks" ]; then
+          cat >> "$GITHUB_OUTPUT" <<EOF
+        args<<ENDARGS
+        GITLEAKS_VERSION=${{ steps.gitleaks.outputs.version }}
+        ENDARGS
+        EOF
+        fi
 
     - name: Build and push image
       if: steps.gate.outputs.proceed == 'true'
       uses: docker/build-push-action@v6
       with:
-        context: .
+        context: tools/${{ matrix.tool }}
         push: true
-        build-args: |
-          KUBECONFORM_VERSION=${{ steps.kubeconform.outputs.version }}
-          KUSTOMIZE_VERSION=${{ steps.kustomize.outputs.version }}
+        build-args: ${{ steps.buildargs.outputs.args }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=${{ matrix.tool }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.tool }}
 
-    # ── GitHub Release ───────────────────────────────────────────────────────
-    - name: Create GitHub Release
-      if: steps.gate.outputs.proceed == 'true'
+    # ── GitHub Release (kubeconform) ───────────────────────────────────────
+    - name: Create GitHub Release (kubeconform)
+      if: steps.gate.outputs.proceed == 'true' && matrix.tool == 'kubeconform'
       env:
         GH_TOKEN: ${{ github.token }}
         TAG: ${{ steps.kubeconform.outputs.version }}
         KUSTOMIZE_VERSION: ${{ steps.kustomize.outputs.version }}
-        IMAGE: ghcr.io/${{ github.repository }}
+        RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        IMAGE: ghcr.io/${{ github.repository_owner }}/ci-tooling-offline/kubeconform
       run: |
         cat > /tmp/release-notes.md << EOF
         ## Bundled tools
@@ -133,7 +203,7 @@ jobs:
         The latest patch release for each minor version is included (both
         \`standalone\` and \`standalone-strict\` variants):
 
-        - v1.31, v1.32, v1.33, v1.34, v1.35
+        - v1.33, v1.34, v1.35
 
         Schemas are sourced from
         [yannh/kubernetes-json-schema](https://github.com/yannh/kubernetes-json-schema).
@@ -145,11 +215,28 @@ jobs:
         ${IMAGE}:latest
         \`\`\`
 
+        ## Usage in Gitea Actions
+
+        \`\`\`yaml
+        validate:
+          runs-on: ubuntu-latest
+          container:
+            image: ${IMAGE}:${TAG}
+          steps:
+            - uses: actions/checkout@v4
+            - run: |
+                kubeconform \\
+                  -kubernetes-version 1.33.0 \\
+                  -schema-location "\$SCHEMA_LOCATION" \\
+                  -summary manifests/
+        \`\`\`
+
         ## Usage in GitLab CI
 
         \`\`\`yaml
         validate:
           image: ${IMAGE}:${TAG}
+          entrypoint: [""]
           script:
             - kubeconform
                 -kubernetes-version 1.33.0
@@ -157,29 +244,74 @@ jobs:
                 -summary
                 manifests/
         \`\`\`
+        EOF
+
+        gh release delete "${RELEASE_TAG}" --yes --repo "${{ github.repository }}" 2>/dev/null || true
+
+        gh release create "${RELEASE_TAG}" \
+          --repo "${{ github.repository }}" \
+          --title "kubeconform ${TAG}" \
+          --notes-file /tmp/release-notes.md
+
+    # ── GitHub Release (gitleaks) ──────────────────────────────────────────
+    - name: Create GitHub Release (gitleaks)
+      if: steps.gate.outputs.proceed == 'true' && matrix.tool == 'gitleaks'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITLEAKS_VERSION: ${{ steps.gitleaks.outputs.version }}
+        RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        IMAGE: ghcr.io/${{ github.repository_owner }}/ci-tooling-offline/gitleaks
+      run: |
+        cat > /tmp/release-notes.md << EOF
+        ## Bundled tools
+
+        | Tool | Version |
+        |------|---------|
+        | [gitleaks](https://github.com/gitleaks/gitleaks) | \`v${GITLEAKS_VERSION}\` |
+        | node | Alpine LTS |
+        | git  | Alpine latest |
+
+        ## Container image
+
+        \`\`\`
+        ${IMAGE}:v${GITLEAKS_VERSION}
+        ${IMAGE}:latest
+        \`\`\`
+
+        ### Why Node.js?
+
+        Gitea Actions runners require Node.js to execute composite and JavaScript-based
+        actions. Including it in the image ensures pipelines work in air-gapped environments.
+
+        ## Usage in Gitea Actions
 
         \`\`\`yaml
-        # Combined kustomize + kubeconform pipeline
-        validate:
-          image: ${IMAGE}:${TAG}
-          entrypoint: [""]
-          script:
-            - kustomize build overlays/production |
-                kubeconform
-                  -kubernetes-version 1.33.0
-                  -schema-location "\$SCHEMA_LOCATION"
-                  -summary -
+        gitleaks:
+          runs-on: ubuntu-latest
+          container:
+            image: ${IMAGE}:v${GITLEAKS_VERSION}
+          steps:
+            - uses: actions/checkout@v4
+              with:
+                fetch-depth: 0
+            - run: gitleaks detect --source . --verbose --redact
         \`\`\`
 
-        The \`\$SCHEMA_LOCATION\` environment variable is pre-set in the image to:
-        \`\`\`
-        /schemas/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json
+        ## Usage in GitLab CI
+
+        \`\`\`yaml
+        secret-scan:
+          image:
+            name: ${IMAGE}:v${GITLEAKS_VERSION}
+            entrypoint: [""]
+          script:
+            - gitleaks detect --source . --verbose
         \`\`\`
         EOF
 
-        gh release delete "${TAG}" --yes --repo "${{ github.repository }}" 2>/dev/null || true
+        gh release delete "${RELEASE_TAG}" --yes --repo "${{ github.repository }}" 2>/dev/null || true
 
-        gh release create "${TAG}" \
+        gh release create "${RELEASE_TAG}" \
           --repo "${{ github.repository }}" \
-          --title "kubeconform ${TAG}" \
+          --title "gitleaks v${GITLEAKS_VERSION}" \
           --notes-file /tmp/release-notes.md

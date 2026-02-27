@@ -24,9 +24,9 @@ FROM alpine:latest
 ARG KUBECONFORM_VERSION
 ARG KUSTOMIZE_VERSION
 
-LABEL org.opencontainers.image.title="kubeconform-offline" \
-    org.opencontainers.image.description="Offline kubeconform + kustomize with bundled Kubernetes JSON schemas (v1.31-v1.35)" \
-    dev.kubeconform-offline.bundled-k8s-versions="v1.31 v1.32 v1.33 v1.34 v1.35"
+LABEL org.opencontainers.image.title="ci-tooling-offline/kubeconform" \
+    org.opencontainers.image.description="Offline kubeconform + kustomize with bundled Kubernetes JSON schemas" \
+    dev.ci-tooling-offline.bundled-k8s-versions="v1.33 v1.34 v1.35"
 
 # Upgrade base packages and install the two tools in a single layer,
 # then remove curl so it does not remain in the final image.
