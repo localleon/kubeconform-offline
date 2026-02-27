@@ -35,7 +35,7 @@ jobs:
           # Convert comma-separated input to JSON array
           TOOLS=$(echo '${{ inputs.tools }}' | tr ',' '\n' | sed 's/^ *//;s/ *$//' | jq -R . | jq -sc .)
         else
-          TOOLS='["kubeconform","gitleaks"]'
+          TOOLS='["kubeconform","gitleaks","yamllint"]'
         fi
         echo "tools=${TOOLS}" >> "$GITHUB_OUTPUT"
         echo "Building tools: ${TOOLS}"
@@ -87,6 +87,17 @@ jobs:
         echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
         echo "gitleaks: ${VERSION}"
 
+    # ── Resolve versions (yamllint) ─────────────────────────────────────────
+    - name: Get latest yamllint version
+      if: matrix.tool == 'yamllint'
+      id: yamllint
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION=$(gh release view --repo adrienverge/yamllint --json tagName -q '.tagName | ltrimstr("v")')
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "yamllint: ${VERSION}"
+
     # ── Compute unified version tag ────────────────────────────────────────
     - name: Set version tag
       id: version
@@ -95,6 +106,8 @@ jobs:
           TAG="${{ steps.kubeconform.outputs.version }}"
         elif [ "${{ matrix.tool }}" = "gitleaks" ]; then
           TAG="v${{ steps.gitleaks.outputs.version }}"
+        elif [ "${{ matrix.tool }}" = "yamllint" ]; then
+          TAG="v${{ steps.yamllint.outputs.version }}"
         fi
         RELEASE_TAG="${{ matrix.tool }}-${TAG}"
         echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -164,6 +177,12 @@ jobs:
           cat >> "$GITHUB_OUTPUT" <<EOF
         args<<ENDARGS
         GITLEAKS_VERSION=${{ steps.gitleaks.outputs.version }}
+        ENDARGS
+        EOF
+        elif [ "${{ matrix.tool }}" = "yamllint" ]; then
+          cat >> "$GITHUB_OUTPUT" <<EOF
+        args<<ENDARGS
+        YAMLLINT_VERSION=${{ steps.yamllint.outputs.version }}
         ENDARGS
         EOF
         fi
@@ -314,4 +333,67 @@ jobs:
         gh release create "${RELEASE_TAG}" \
           --repo "${{ github.repository }}" \
           --title "gitleaks v${GITLEAKS_VERSION}" \
+          --notes-file /tmp/release-notes.md
+
+    # ── GitHub Release (yamllint) ──────────────────────────────────────────
+    - name: Create GitHub Release (yamllint)
+      if: steps.gate.outputs.proceed == 'true' && matrix.tool == 'yamllint'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        YAMLLINT_VERSION: ${{ steps.yamllint.outputs.version }}
+        RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        IMAGE: ghcr.io/${{ github.repository_owner }}/ci-tooling-offline/yamllint
+      run: |
+        cat > /tmp/release-notes.md << EOF
+        ## Bundled tools
+
+        | Tool | Version |
+        |------|---------|
+        | [yamllint](https://github.com/adrienverge/yamllint) | \`v${YAMLLINT_VERSION}\` |
+        | python3 | Alpine latest |
+        | PyYAML  | Alpine latest |
+        | node | Alpine LTS |
+        | git  | Alpine latest |
+
+        ## Container image
+
+        \`\`\`
+        ${IMAGE}:v${YAMLLINT_VERSION}
+        ${IMAGE}:latest
+        \`\`\`
+
+        ### Why Node.js?
+
+        Gitea Actions runners require Node.js to execute composite and JavaScript-based
+        actions. Including it in the image ensures pipelines work in air-gapped environments.
+
+        ## Usage in Gitea Actions
+
+        \`\`\`yaml
+        yamllint:
+          runs-on: ubuntu-latest
+          container:
+            image: ${IMAGE}:v${YAMLLINT_VERSION}
+          steps:
+            - uses: actions/checkout@v4
+            - run: yamllint .
+        \`\`\`
+
+        ## Usage in GitLab CI
+
+        \`\`\`yaml
+        yaml-lint:
+          image:
+            name: ${IMAGE}:v${YAMLLINT_VERSION}
+            entrypoint: [""]
+          script:
+            - yamllint .
+        \`\`\`
+        EOF
+
+        gh release delete "${RELEASE_TAG}" --yes --repo "${{ github.repository }}" 2>/dev/null || true
+
+        gh release create "${RELEASE_TAG}" \
+          --repo "${{ github.repository }}" \
+          --title "yamllint v${YAMLLINT_VERSION}" \
           --notes-file /tmp/release-notes.md

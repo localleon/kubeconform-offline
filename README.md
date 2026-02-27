@@ -10,6 +10,7 @@ All images are Alpine-based, pre-bundle everything needed at runtime, and requir
 | --------------- | ------------------------------------------------ | -------------------------------------------------------------------- |
 | **kubeconform** | `ghcr.io/<owner>/ci-tooling-offline/kubeconform` | Kubernetes manifest validation with offline JSON schemas + kustomize |
 | **gitleaks**    | `ghcr.io/<owner>/ci-tooling-offline/gitleaks`    | Secret scanning with Node.js for Gitea runner compatibility          |
+| **yamllint**    | `ghcr.io/<owner>/ci-tooling-offline/yamllint`    | YAML linting with Python 3 and PyYAML                                |
 
 ## Repository structure
 
@@ -24,9 +25,14 @@ ci-tooling-offline/
 │   │   │   └── download-schemas.sh
 │   │   └── examples/
 │   │       └── gitea-workflow.yml ← copy into your project
-│   └── gitleaks/
+│   ├── gitleaks/
 │       ├── Dockerfile
 │       ├── README.md              ← detailed gitleaks docs
+│       └── examples/
+│           └── gitea-workflow.yml ← copy into your project
+│   └── yamllint/
+│       ├── Dockerfile
+│       ├── README.md              ← detailed yamllint docs
 │       └── examples/
 │           └── gitea-workflow.yml ← copy into your project
 └── manifests/                     ← test fixtures
@@ -47,6 +53,9 @@ cp tools/kubeconform/examples/gitea-workflow.yml .gitea/workflows/kubeconform.ym
 
 # For gitleaks
 cp tools/gitleaks/examples/gitea-workflow.yml .gitea/workflows/gitleaks.yml
+
+# For yamllint
+cp tools/yamllint/examples/gitea-workflow.yml .gitea/workflows/yamllint.yml
 ```
 
 Then adjust the image reference (`ghcr.io/<owner>/ci-tooling-offline/<tool>:latest`) to match your registry.
@@ -56,6 +65,7 @@ Then adjust the image reference (`ghcr.io/<owner>/ci-tooling-offline/<tool>:late
 See each tool's README for GitLab CI examples:
 - [tools/kubeconform/README.md](tools/kubeconform/README.md)
 - [tools/gitleaks/README.md](tools/gitleaks/README.md)
+- [tools/yamllint/README.md](tools/yamllint/README.md)
 
 ## Automation
 
@@ -66,7 +76,7 @@ The GitHub Actions workflow ([`.github/workflows/build.yml`](.github/workflows/b
 3. Builds and pushes the image to GHCR (`ghcr.io/<owner>/ci-tooling-offline/<tool>`).
 4. Creates a GitHub Release with tool versions and usage examples.
 
-Release tags are prefixed per tool (`kubeconform-v*`, `gitleaks-v*`) to avoid collisions.
+Release tags are prefixed per tool (`kubeconform-v*`, `gitleaks-v*`, `yamllint-v*`) to avoid collisions.
 
 Trigger a manual rebuild via **Actions → Build and Publish → Run workflow** with:
 - **force_rebuild**: override the skip guard
@@ -85,6 +95,11 @@ docker build \
 docker build \
   --build-arg GITLEAKS_VERSION=8.24.0 \
   -t ci-tooling-offline/gitleaks:local tools/gitleaks/
+
+# Build yamllint image
+docker build \
+  --build-arg YAMLLINT_VERSION=1.37.0 \
+  -t ci-tooling-offline/yamllint:local tools/yamllint/
 ```
 
 ## Local testing with act
