@@ -74,13 +74,37 @@ The GitHub Actions workflow ([`.github/workflows/build.yml`](.github/workflows/b
 1. Resolves the latest upstream release version.
 2. Skips the build if a release tag for that version already exists.
 3. Builds and pushes the image to GHCR (`ghcr.io/<owner>/ci-tooling-offline/<tool>`).
-4. Creates a GitHub Release with tool versions and usage examples.
+4. Signs the image with [cosign](https://github.com/sigstore/cosign) (keyless / OIDC).
+5. Generates an SPDX SBOM and attaches it as a cosign attestation.
+6. Scans the image for vulnerabilities with [Trivy](https://github.com/aquasecurity/trivy).
+7. Creates a GitHub Release with tool versions, usage examples, and the SBOM / vulnerability report as assets.
 
 Release tags are prefixed per tool (`kubeconform-v*`, `gitleaks-v*`, `yamllint-v*`) to avoid collisions.
 
 Trigger a manual rebuild via **Actions → Build and Publish → Run workflow** with:
 - **force_rebuild**: override the skip guard
 - **tools**: comma-separated list to build only specific tools (empty = all)
+
+## Supply-chain security
+
+Every container image is signed and attested using [Sigstore](https://www.sigstore.dev/) tooling:
+
+- **Cosign keyless signing** – each image is signed via OIDC (no long-lived keys). Verify with:
+  ```sh
+  cosign verify \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp 'https://github.com/<owner>/ci-tooling-offline/' \
+    ghcr.io/<owner>/ci-tooling-offline/<tool>:<tag>
+  ```
+- **SBOM attestation** – an SPDX JSON SBOM is generated with [Syft](https://github.com/anchore/syft) and attached to the image as an in-toto attestation. Verify with:
+  ```sh
+  cosign verify-attestation \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp 'https://github.com/<owner>/ci-tooling-offline/' \
+    --type spdxjson \
+    ghcr.io/<owner>/ci-tooling-offline/<tool>:<tag>
+  ```
+- **Vulnerability report** – [Trivy](https://github.com/aquasecurity/trivy) scans each image and the report is uploaded as a GitHub Release asset.
 
 ## Local builds
 
