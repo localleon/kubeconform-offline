@@ -235,7 +235,7 @@ jobs:
 
     - name: Scan image for vulnerabilities
       if: steps.gate.outputs.proceed == 'true'
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@0.33.1
       with:
         image-ref: ghcr.io/${{ github.repository_owner }}/ci-tooling-offline/${{ matrix.tool }}:${{ steps.version.outputs.tag }}
         format: table
